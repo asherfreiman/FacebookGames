@@ -34,7 +34,6 @@ function norm(s) {
 /**
  * Parse Random.org verify page into rounds:
  * [{ round: 1, names: [...] }, ...]
- * Robust: finds round headings in DOM and extracts lines after each heading.
  */
 function parseRandomOrgVerify(html) {
   const $ = cheerio.load(html);
@@ -78,9 +77,7 @@ function parseRandomOrgVerify(html) {
   }
 
   if (rounds.length === 0) {
-    throw new Error(
-      "Rounds detected but no participant lines parsed. Random.org may be blocking automated fetches or the format changed."
-    );
+    throw new Error("Rounds detected but no participant lines parsed.");
   }
 
   rounds.sort((a, b) => a.round - b.round);
@@ -94,10 +91,18 @@ function extractNamesFromChunk(chunkText) {
   const names = [];
 
   const reTwoNums = /^\s*\d+\.\s*\d+\.\s*(.+?)\s*$/u; // "1. 3. Name"
-  const reOneNum = /^\s*\d+\.\s*(.+?)\s*$/u;         // "1. Name" fallback
+  const reOneNum = /^\s*\d+\.\s*(.+?)\s*$/u;         // "1. Name"
 
-  // Remove leading numbers inside the extracted "name" like "5 Joe" -> "Joe"
-  const cleanName = (s) => norm(s).replace(/^\d+\s*/, "").trim();
+  // FIX: preserve numeric-only names like "56"
+  const cleanName = (s) => {
+    const v = norm(s);
+
+    // If the entire string is digits, keep it (e.g., "56")
+    if (/^\d+$/.test(v)) return v;
+
+    // Only strip leading numbers when followed by real text (e.g., "5 Joe" -> "Joe")
+    return v.replace(/^\d+\s+(?=\S)/, "").trim();
+  };
 
   for (const line of lines) {
     let m = line.match(reTwoNums);
@@ -199,7 +204,6 @@ app.post("/api/generate", async (req, res) => {
 
     const html = await resp.text();
 
-    // Bot-check detection
     if (/enable javascript|checking your browser|are you a robot|cloudflare/i.test(html)) {
       throw new Error("Random.org is blocking automated requests from your server (bot check).");
     }
@@ -213,18 +217,7 @@ app.post("/api/generate", async (req, res) => {
 
     const { topList, bottomList } = buildTwoLists(rounds, bottomCount);
 
-    // ✅ NEW: Spot counts from Round 1 (entries/spots)
-    const spotCounts = {};
-    if (rounds.length > 0 && Array.isArray(rounds[0].names)) {
-      for (const name of rounds[0].names) {
-        const key = norm(name); // normalize so emojis/spaces match client-side
-        if (!key) continue;
-        spotCounts[key] = (spotCounts[key] || 0) + 1;
-      }
-    }
-
-    // ✅ include spotCounts in response
-    res.json({ ok: true, roundsCount: rounds.length, topList, bottomList, spotCounts });
+    res.json({ ok: true, roundsCount: rounds.length, topList, bottomList });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }
