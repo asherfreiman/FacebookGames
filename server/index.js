@@ -97,7 +97,7 @@ function extractNamesFromChunk(chunkText) {
   const cleanName = (s) => {
     const v = norm(s);
 
-    // If the entire string is digits, keep it (e.g., "56")
+    // If the entire string is digits (e.g., "56"), keep it
     if (/^\d+$/.test(v)) return v;
 
     // Only strip leading numbers when followed by real text (e.g., "5 Joe" -> "Joe")
@@ -107,7 +107,8 @@ function extractNamesFromChunk(chunkText) {
   for (const line of lines) {
     let m = line.match(reTwoNums);
     if (m && m[1]) {
-      names.push(cleanName(m[1]));
+      const nm = cleanName(m[1]);
+      if (nm) names.push(nm);
       continue;
     }
 
@@ -189,6 +190,21 @@ function buildTwoLists(rounds, bottomCount = 1) {
   return { topList, bottomList };
 }
 
+function buildSpotCountsFromRound1(rounds) {
+  const spotCounts = {};
+  const round1 = rounds.find(r => r && Number(r.round) === 1) || rounds[0];
+
+  if (!round1 || !Array.isArray(round1.names)) return spotCounts;
+
+  for (const raw of round1.names) {
+    const name = norm(raw);
+    if (!name) continue;
+    spotCounts[name] = (spotCounts[name] || 0) + 1;
+  }
+
+  return spotCounts;
+}
+
 app.post("/api/generate", async (req, res) => {
   try {
     const { url, bottomMode } = req.body;
@@ -217,7 +233,16 @@ app.post("/api/generate", async (req, res) => {
 
     const { topList, bottomList } = buildTwoLists(rounds, bottomCount);
 
-    res.json({ ok: true, roundsCount: rounds.length, topList, bottomList });
+    // ✅ NEW: spotCounts (how many paid spots each name has) from Round 1 list
+    const spotCounts = buildSpotCountsFromRound1(rounds);
+
+    res.json({
+      ok: true,
+      roundsCount: rounds.length,
+      topList,
+      bottomList,
+      spotCounts
+    });
   } catch (err) {
     res.status(400).json({ ok: false, error: err.message });
   }
