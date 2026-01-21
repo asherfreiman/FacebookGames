@@ -1,0 +1,203 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>TT Calculator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+    input, select, button, textarea { font-size: 16px; padding: 10px; }
+    input { width: 100%; }
+    .row { display: flex; gap: 12px; align-items: end; margin-top: 12px; flex-wrap: wrap; }
+    button { cursor: pointer; }
+    .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; }
+    @media (max-width: 700px){ .cols{ grid-template-columns: 1fr; } }
+    textarea { width: 100%; height: 260px; }
+    .muted { color: #666; }
+    .error { color: #b00020; white-space: pre-wrap; }
+    .nav a { margin-right: 12px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/"><b>TT Calculator</b></a>
+    <a href="/cash.html">Cash Game Calculator</a>
+  </div>
+
+  <h1>TT Calculator</h1>
+  <p class="muted">Paste a Random.org <b>verify</b> link (or just the code). Choose bottom mode. Get two lists.</p>
+
+  <label>
+    Verify link / code
+    <input id="url" placeholder="https://giveaways.random.org/verify/eyueov OR eyueov" />
+  </label>
+
+  <div class="row">
+    <label>
+      Bottom list mode
+      <select id="bottomMode">
+        <option value="1">Bottom 1 each round</option>
+        <option value="2">Bottom 2 each round</option>
+        <option value="3">Bottom 3 each round</option>
+        <option value="4">Bottom 4 each round</option>
+        <option value="5">Bottom 5 each round</option>
+      </select>
+    </label>
+
+    <button id="run">Generate</button>
+    <span id="status" class="muted"></span>
+  </div>
+
+  <div id="err" class="error"></div>
+
+  <div class="cols">
+    <div>
+      <div class="row" style="justify-content: space-between;">
+        <h2 style="margin: 0;">Top 1 each round</h2>
+        <button id="copyTop" type="button">Copy</button>
+      </div>
+      <textarea id="topOut" readonly></textarea>
+    </div>
+
+    <div>
+      <div class="row" style="justify-content: space-between;">
+        <h2 style="margin: 0;">Bottom list</h2>
+        <button id="copyBottom" type="button">Copy</button>
+      </div>
+      <textarea id="bottomOut" readonly></textarea>
+
+      <!-- Bottom tally + damages -->
+      <div class="card" style="margin-top: 14px;">
+        <h2 style="margin-top:0;">Bottom Tally</h2>
+        <p class="muted" style="margin-top:0;">
+          Counts how many times each person appears in the bottom list. Optional: multiply by a damage/cost amount.
+        </p>
+
+        <div class="row">
+          <label style="min-width: 240px;">
+            Damage / cost per bottom appearance
+            <input id="damageCost" type="number" inputmode="decimal" step="0.01" value="0" />
+          </label>
+          <button id="copyTally" type="button">Copy tally</button>
+        </div>
+
+        <textarea id="bottomTallyOut" readonly style="height: 220px;"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">About & Contact</h2>
+    <p class="muted" style="margin-top:0;">
+      Hi — I built this tool to quickly turn Random.org giveaway rounds into clean, copy/paste lists.
+      On my version, we will always remain free for the entire hobby.
+      If you wish to tip for your use, please consider contacting me on Facebook.
+    </p>
+    <p style="margin-bottom:0;">
+      <a href="https://www.facebook.com/asher.freiman.7/" target="_blank" rel="noopener noreferrer">
+        Contact me on Facebook
+      </a>
+    </p>
+  </div>
+
+  <script>
+    const API = "/api/generate";
+
+    const urlEl = document.getElementById("url");
+    const bottomModeEl = document.getElementById("bottomMode");
+    const runBtn = document.getElementById("run");
+    const statusEl = document.getElementById("status");
+    const errEl = document.getElementById("err");
+    const topOut = document.getElementById("topOut");
+    const bottomOut = document.getElementById("bottomOut");
+
+    const damageCostEl = document.getElementById("damageCost");
+    const bottomTallyOut = document.getElementById("bottomTallyOut");
+    const copyTallyBtn = document.getElementById("copyTally");
+
+    function toLines(list) {
+      return (list || []).map(x => String(x)).join("\n");
+    }
+
+    function copyFrom(textarea) {
+      textarea.focus();
+      textarea.select();
+      document.execCommand("copy");
+    }
+
+    function stripOurNumbering(line) {
+      // "7. Name" -> "Name"
+      return String(line).replace(/^\s*\d+\.\s*/, "").trim();
+    }
+
+    function money(n) {
+      const x = Number(n) || 0;
+      return x.toLocaleString(undefined, { style: "currency", currency: "USD" });
+    }
+
+    function buildBottomTally(bottomLines, damageCost) {
+      const counts = new Map();
+
+      for (const line of (bottomLines || [])) {
+        const rest = stripOurNumbering(line); // remove "1. "
+        if (!rest) continue;
+
+        // bottom N can be "A, B, C" — split by commas
+        const parts = rest.split(",").map(s => s.trim()).filter(Boolean);
+        for (const name of parts) {
+          counts.set(name, (counts.get(name) || 0) + 1);
+        }
+      }
+
+      const rows = [...counts.entries()]
+        .map(([name, count]) => ({ name, count, damages: count * damageCost }))
+        .sort((a, b) => (b.count - a.count) || a.name.localeCompare(b.name));
+
+      if (rows.length === 0) return "";
+
+      return rows.map(r => {
+        if (damageCost > 0) return `${r.name} — ${r.count}x — ${money(r.damages)} damages`;
+        return `${r.name} — ${r.count}x`;
+      }).join("\n");
+    }
+
+    document.getElementById("copyTop").addEventListener("click", () => copyFrom(topOut));
+    document.getElementById("copyBottom").addEventListener("click", () => copyFrom(bottomOut));
+    copyTallyBtn.addEventListener("click", () => copyFrom(bottomTallyOut));
+
+    runBtn.addEventListener("click", async () => {
+      errEl.textContent = "";
+      statusEl.textContent = "Working...";
+      topOut.value = "";
+      bottomOut.value = "";
+      bottomTallyOut.value = "";
+
+      const url = urlEl.value.trim();
+      const bottomMode = Number(bottomModeEl.value);
+
+      try {
+        const res = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, bottomMode })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || "Request failed");
+
+        topOut.value = toLines(data.topList);
+        bottomOut.value = toLines(data.bottomList);
+
+        const damageCost = Number(damageCostEl.value) || 0;
+        bottomTallyOut.value = buildBottomTally(data.bottomList, damageCost);
+
+        statusEl.textContent = `Done. Rounds: ${data.roundsCount}`;
+      } catch (e) {
+        errEl.textContent = e.message;
+        statusEl.textContent = "";
+      }
+    });
+  </script>
+</body>
+</html>

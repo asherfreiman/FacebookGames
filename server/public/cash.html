@@ -1,0 +1,214 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cash Game Calculator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+    input, button { font-size: 16px; padding: 10px; }
+    input { width: 100%; }
+    .row { display: flex; gap: 12px; align-items: end; margin-top: 12px; flex-wrap: wrap; }
+    .muted { color: #666; }
+    .error { color: #b00020; white-space: pre-wrap; margin-top: 10px; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin-top: 14px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 10px; text-align: left; }
+    th { background: #fafafa; }
+    .right { text-align: right; }
+    .nav a { margin-right: 12px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">TT Calculator</a>
+    <a href="/cash.html"><b>Cash Game Calculator</b></a>
+  </div>
+
+  <h1>Cash Game Calculator</h1>
+  <p class="muted">
+    Spots are counted from <b>Round 1</b> (each time a name/emoji appears).
+    Wins are how many times that name finishes <b>top of a round</b>.
+    <br/>
+    Net = (wins × $ per win) − (spots × entry fee).
+  </p>
+
+  <div class="card">
+    <label>
+      Verify link / code
+      <input id="url" placeholder="https://giveaways.random.org/verify/eyueov OR eyueov" />
+    </label>
+
+    <div class="row">
+      <label style="min-width: 220px;">
+        $ per win
+        <input id="perTop" type="number" inputmode="decimal" step="0.01" value="100" />
+      </label>
+
+      <label style="min-width: 220px;">
+        Entry fee (per spot)
+        <input id="entryFee" type="number" inputmode="decimal" step="0.01" value="150" />
+      </label>
+
+      <button id="run">Generate totals</button>
+      <span id="status" class="muted"></span>
+    </div>
+
+    <div id="err" class="error"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0;">Results</h2>
+    <div class="muted" id="meta"></div>
+
+    <table id="tbl" style="display:none;">
+      <thead>
+        <tr>
+          <th>Player</th>
+          <th class="right">Spots</th>
+          <th class="right">Wins</th>
+          <th class="right">Gross</th>
+          <th class="right">Entry paid</th>
+          <th class="right">Net</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+      <tfoot>
+        <tr>
+          <th>Totals</th>
+          <th></th>
+          <th></th>
+          <th class="right" id="totalGross"></th>
+          <th class="right" id="totalEntry"></th>
+          <th class="right" id="totalNet"></th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <script>
+    const API = "/api/generate";
+
+    const urlEl = document.getElementById("url");
+    const perTopEl = document.getElementById("perTop");
+    const entryFeeEl = document.getElementById("entryFee");
+    const runBtn = document.getElementById("run");
+    const statusEl = document.getElementById("status");
+    const errEl = document.getElementById("err");
+    const metaEl = document.getElementById("meta");
+    const tbl = document.getElementById("tbl");
+    const tbody = document.getElementById("tbody");
+    const totalGrossEl = document.getElementById("totalGross");
+    const totalEntryEl = document.getElementById("totalEntry");
+    const totalNetEl = document.getElementById("totalNet");
+
+    function money(n) {
+      const x = Number(n) || 0;
+      return x.toLocaleString(undefined, { style: "currency", currency: "USD" });
+    }
+
+    function stripOurNumbering(line) {
+      return String(line).replace(/^\s*\d+\.\s*/, "").trim();
+    }
+
+    function normKey(s) {
+      return String(s || "")
+        .replace(/\u00A0/g, " ")
+        .replace(/\u202F/g, " ")
+        .replace(/\u2007/g, " ")
+        .replace(/[ \t]+/g, " ")
+        .trim();
+    }
+
+    runBtn.addEventListener("click", async () => {
+      errEl.textContent = "";
+      statusEl.textContent = "Working...";
+      metaEl.textContent = "";
+      tbody.innerHTML = "";
+      tbl.style.display = "none";
+      totalGrossEl.textContent = "";
+      totalEntryEl.textContent = "";
+      totalNetEl.textContent = "";
+
+      const url = urlEl.value.trim();
+      const perTop = Number(perTopEl.value) || 0;
+      const entryFee = Number(entryFeeEl.value) || 0;
+
+      try {
+        const res = await fetch(API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, bottomMode: 1 })
+        });
+
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.error || "Request failed");
+
+        const spotCountsRaw =
+          (data && data.spotCounts && typeof data.spotCounts === "object") ? data.spotCounts : null;
+
+        if (!spotCountsRaw) {
+          throw new Error("spotCounts missing. Update index.js /api/generate to include spotCounts and restart server.");
+        }
+
+        const spotCounts = {};
+        for (const [k, v] of Object.entries(spotCountsRaw)) {
+          const nk = normKey(k);
+          if (!nk) continue;
+          spotCounts[nk] = (spotCounts[nk] || 0) + (Number(v) || 0);
+        }
+
+        const winsByName = new Map();
+        const topLines = Array.isArray(data.topList) ? data.topList : [];
+        for (const line of topLines) {
+          const name = normKey(stripOurNumbering(line));
+          if (!name) continue;
+          winsByName.set(name, (winsByName.get(name) || 0) + 1);
+        }
+
+        const names = Object.keys(spotCounts);
+
+        const rows = names.map(name => {
+          const spots = Number(spotCounts[name] || 0);
+          const wins = Number(winsByName.get(name) || 0);
+          const gross = wins * perTop;
+          const entryPaid = spots * entryFee;
+          const net = gross - entryPaid;
+          return { name, spots, wins, gross, entryPaid, net };
+        }).sort((a, b) => (b.net - a.net) || (b.wins - a.wins) || a.name.localeCompare(b.name));
+
+        metaEl.textContent = `Rounds: ${data.roundsCount} • $/win: ${money(perTop)} • Entry/spot: ${money(entryFee)} • Spots from Round 1`;
+
+        let totalGross = 0, totalEntry = 0, totalNet = 0;
+
+        for (const r of rows) {
+          totalGross += r.gross;
+          totalEntry += r.entryPaid;
+          totalNet += r.net;
+
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${r.name}</td>
+            <td class="right">${r.spots}</td>
+            <td class="right">${r.wins}</td>
+            <td class="right">${money(r.gross)}</td>
+            <td class="right">${money(r.entryPaid)}</td>
+            <td class="right"><b>${money(r.net)}</b></td>
+          `;
+          tbody.appendChild(tr);
+        }
+
+        totalGrossEl.textContent = money(totalGross);
+        totalEntryEl.textContent = money(totalEntry);
+        totalNetEl.textContent = money(totalNet);
+
+        tbl.style.display = "table";
+        statusEl.textContent = "Done.";
+      } catch (e) {
+        errEl.textContent = e.message;
+        statusEl.textContent = "";
+      }
+    });
+  </script>
+</body>
+</html>
