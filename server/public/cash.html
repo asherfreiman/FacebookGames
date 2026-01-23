@@ -17,6 +17,8 @@
     th { background: #fafafa; }
     .right { text-align: right; }
     .nav a { margin-right: 12px; }
+    .pill { display:inline-block; padding: 2px 10px; border:1px solid #ddd; border-radius: 999px; background:#fafafa; margin-left:8px; font-size: 13px; }
+    .btn-secondary { background:#f3f3f3; border:1px solid #ddd; border-radius:10px; }
   </style>
 </head>
 <body>
@@ -51,6 +53,7 @@
       </label>
 
       <button id="run">Generate totals</button>
+      <button id="clear" type="button" class="btn-secondary">Clear</button>
       <span id="status" class="muted"></span>
     </div>
 
@@ -60,6 +63,21 @@
   <div class="card">
     <h2 style="margin-top:0;">Results</h2>
     <div class="muted" id="meta"></div>
+
+    <!-- STREAKS (no extra wording) -->
+    <div id="streakCard" class="card" style="margin-top:12px; display:none;">
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:260px;">
+          <div><b>Longest streak</b><span class="pill" id="bestLenPill"></span></div>
+          <div id="bestStreakText" style="margin-top:6px;"></div>
+        </div>
+
+        <div style="flex:1; min-width:260px;">
+          <div><b>All 4+ streaks</b><span class="pill" id="fourPlusPill"></span></div>
+          <div id="fourPlusText" style="margin-top:6px;"></div>
+        </div>
+      </div>
+    </div>
 
     <table id="tbl" style="display:none;">
       <thead>
@@ -93,6 +111,7 @@
     const perTopEl = document.getElementById("perTop");
     const entryFeeEl = document.getElementById("entryFee");
     const runBtn = document.getElementById("run");
+    const clearBtn = document.getElementById("clear");
     const statusEl = document.getElementById("status");
     const errEl = document.getElementById("err");
     const metaEl = document.getElementById("meta");
@@ -101,6 +120,13 @@
     const totalGrossEl = document.getElementById("totalGross");
     const totalEntryEl = document.getElementById("totalEntry");
     const totalNetEl = document.getElementById("totalNet");
+
+    // streak UI
+    const streakCard = document.getElementById("streakCard");
+    const bestLenPill = document.getElementById("bestLenPill");
+    const bestStreakText = document.getElementById("bestStreakText");
+    const fourPlusPill = document.getElementById("fourPlusPill");
+    const fourPlusText = document.getElementById("fourPlusText");
 
     function money(n) {
       const x = Number(n) || 0;
@@ -120,6 +146,103 @@
         .trim();
     }
 
+    // Build per-round winners in order from topList
+    function buildFirstPlaceSequence(topLines) {
+      const seq = [];
+      const arr = Array.isArray(topLines) ? topLines : [];
+      for (const line of arr) {
+        const name = normKey(stripOurNumbering(line));
+        if (name) seq.push(name);
+      }
+      return seq;
+    }
+
+    function getAllStreaks(firstPlaceSequence, minLen = 4) {
+      const streaks = [];
+      let i = 0;
+      while (i < firstPlaceSequence.length) {
+        const spot = firstPlaceSequence[i];
+        if (!spot) { i++; continue; }
+        let j = i + 1;
+        while (j < firstPlaceSequence.length && firstPlaceSequence[j] === spot) j++;
+        const len = j - i;
+        if (len >= minLen) streaks.push({ spot, len, startIndex: i, endIndex: j - 1 });
+        i = j;
+      }
+      return streaks;
+    }
+
+    function getLongestStreak(firstPlaceSequence) {
+      let best = { spot: null, len: 0, startIndex: -1, endIndex: -1 };
+      let i = 0;
+      while (i < firstPlaceSequence.length) {
+        const spot = firstPlaceSequence[i];
+        if (!spot) { i++; continue; }
+        let j = i + 1;
+        while (j < firstPlaceSequence.length && firstPlaceSequence[j] === spot) j++;
+        const len = j - i;
+        if (len > best.len) best = { spot, len, startIndex: i, endIndex: j - 1 };
+        i = j;
+      }
+      return best;
+    }
+
+    function renderStreaks(firstPlaceSequence) {
+      streakCard.style.display = "none";
+      bestLenPill.textContent = "";
+      bestStreakText.textContent = "";
+      fourPlusPill.textContent = "";
+      fourPlusText.textContent = "";
+
+      if (!Array.isArray(firstPlaceSequence) || firstPlaceSequence.length === 0) return;
+
+      const best = getLongestStreak(firstPlaceSequence);
+      const streaks4 = getAllStreaks(firstPlaceSequence, 4);
+
+      streakCard.style.display = "block";
+
+      bestLenPill.textContent = best.len ? `${best.len} in a row` : `—`;
+      if (!best.spot || best.len === 0) {
+        bestStreakText.textContent = "No streak data.";
+      } else {
+        bestStreakText.innerHTML =
+          `<b>${best.spot}</b> went 1st <b>${best.len}</b> straight rounds (rounds #${best.startIndex + 1}–#${best.endIndex + 1}).`;
+      }
+
+      fourPlusPill.textContent = streaks4.length ? `${streaks4.length} streak(s)` : `0 streaks`;
+      if (!streaks4.length) {
+        fourPlusText.textContent = "No 4+ streaks found.";
+      } else {
+        fourPlusText.innerHTML = `
+          <ul style="margin:0;padding-left:18px;">
+            ${streaks4.map(s =>
+              `<li><b>${s.spot}</b> — <b>${s.len}</b> straight (rounds #${s.startIndex + 1}–#${s.endIndex + 1})</li>`
+            ).join("")}
+          </ul>
+        `;
+      }
+    }
+
+    function clearAll() {
+      urlEl.value = "";
+      statusEl.textContent = "";
+      errEl.textContent = "";
+      metaEl.textContent = "";
+      tbody.innerHTML = "";
+      tbl.style.display = "none";
+      totalGrossEl.textContent = "";
+      totalEntryEl.textContent = "";
+      totalNetEl.textContent = "";
+      streakCard.style.display = "none";
+      bestLenPill.textContent = "";
+      bestStreakText.textContent = "";
+      fourPlusPill.textContent = "";
+      fourPlusText.textContent = "";
+      urlEl.focus();
+    }
+
+    clearBtn.addEventListener("click", () => clearAll());
+
     runBtn.addEventListener("click", async () => {
       errEl.textContent = "";
       statusEl.textContent = "Working...";
@@ -129,6 +252,7 @@
       totalGrossEl.textContent = "";
       totalEntryEl.textContent = "";
       totalNetEl.textContent = "";
+      streakCard.style.display = "none";
 
       const url = urlEl.value.trim();
       const perTop = Number(perTopEl.value) || 0;
@@ -165,6 +289,10 @@
           if (!name) continue;
           winsByName.set(name, (winsByName.get(name) || 0) + 1);
         }
+
+        // streaks from per-round winners
+        const firstPlaceSequence = buildFirstPlaceSequence(topLines);
+        renderStreaks(firstPlaceSequence);
 
         const names = Object.keys(spotCounts);
 
