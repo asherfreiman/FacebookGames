@@ -1,0 +1,210 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gravity Line + Damages</title>
+  <style>
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 8px; }
+    h2 { margin: 0 0 10px; }
+    .muted { color:#555; font-size:14px; line-height: 1.35; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 14px 0; }
+    label { display:block; font-weight: 700; margin-top: 10px; }
+    input, textarea, button { width: 100%; font-size: 16px; padding: 10px; margin-top: 6px; box-sizing: border-box; }
+    textarea { min-height: 220px; }
+    button { cursor: pointer; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 12px; border-radius: 10px; border: 1px solid #eee; margin: 0; }
+    .ok { color:#0a7; font-weight:700; }
+    .err { color:#b00; font-weight:700; }
+    .small { font-size:13px; }
+  </style>
+</head>
+<body>
+<div class="nav">
+  <a href="/index.html">TT Calculator</a>
+  <a href="/gravity.html">Gravity Calculator</a>
+  <a href="/line.html">Line Calculator</a>
+  <a href="/cash.html">Cash Game Calculator</a>
+</div>
+
+
+
+
+
+  <h1>Gravity Line Tool</h1>
+  <div class="muted">
+    Spots needed uses: <b>1 + 2 + ... + n = n(n+1)/2</b><br>
+    Damages: we sum the <b>FIRST left number</b> on each line by the matching name. The <b>second number</b> is ignored.
+  </div>
+
+  <div class="card">
+    <h2>How many spots do I need?</h2>
+
+    <label for="targetValue">Target Value ($)</label>
+    <input id="targetValue" type="number" min="0" step="1" placeholder="e.g., 325" />
+
+    <button id="calcSpots" style="margin-top:12px;">Calculate Spots</button>
+    <div id="spotsResult" class="muted" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>Damages from Giveaway Final Round</h2>
+
+    <div class="muted">
+      Open your giveaway page, copy the <b>final round</b>, and paste here. Then click <b>Generate Damages</b>.<br><br>
+      Same names/emojis will be <b>added together</b>.
+    </div>
+
+    <label for="resultsPaste" style="margin-top:12px;">Paste final round results here</label>
+    <textarea id="resultsPaste" placeholder="Example: 1. 74. NameHere: $1.00"></textarea>
+
+    <label for="overrideText">Optional: override what certain finish positions owe</label>
+    <input id="overrideText" type="text" placeholder="Example: 1=30, 2=15 (finish position = amount owed)" />
+
+    <div class="muted small" style="margin-top:6px;">
+      Use comma-separated rules. Example: <b>1=30</b> means whoever finished #1 owes $30 instead of $1.
+    </div>
+
+    <button id="genDamages" style="margin-top:12px;">Generate Damages</button>
+    <div id="status" class="muted small" style="margin-top:10px;"></div>
+
+    <h3 style="margin:14px 0 8px;">Damages</h3>
+    <pre id="damagesOut">(nothing yet)</pre>
+  </div>
+
+<script>
+  // ----- Gravity math -----
+  function tri(n){ n=Number(n); return (Number.isFinite(n)&&n>=0) ? n*(n+1)/2 : 0; }
+  function minSpotsForValue(v){
+    v = Math.floor(Number(v));
+    if (!Number.isFinite(v) || v <= 0) return 0;
+    return Math.ceil((Math.sqrt(1 + 8*v) - 1) / 2);
+  }
+  function money(x){ return "$" + Number(x).toFixed(2); }
+  function setStatus(kind,msg){
+    const el=document.getElementById("status");
+    el.className="muted small " + (kind==="ok"?"ok":kind==="err"?"err":"");
+    el.textContent=msg;
+  }
+
+  document.getElementById("calcSpots").addEventListener("click",()=>{
+    const v=document.getElementById("targetValue").value;
+    const n=minSpotsForValue(v);
+    const out=document.getElementById("spotsResult");
+    if(!n){ out.textContent="Enter a target value ($)."; return; }
+    out.innerHTML=`Minimum spots: <b>${n}</b><br>Total at ${n}: <b>${tri(n)}</b><br>Total at ${n-1}: ${n>1?tri(n-1):0}`;
+  });
+
+  function canonicalKey(name) {
+    return String(name || "")
+      .normalize("NFKC")
+      .replace(/\u00A0/g, " ")
+      .replace(/[\u200B-\u200D\uFEFF]/g, "")
+      .replace(/[\uFE0E\uFE0F]/g, "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+  }
+
+  // Parse lines like:
+  // "1. 74. NAME: $1.00"
+  // owed = first number (finish position)
+  // second number (spot) ignored
+  // name = after second dot up to ":" (or end)
+  function parseLine(line){
+    let raw = String(line || "")
+      .normalize("NFKC")
+      .replace(/\u00A0/g, " ")
+      .trim();
+
+    if (!raw) return null;
+    if (raw === "—") return null;
+    if (/^total\s+owed/i.test(raw)) return null;
+
+    raw = raw.replace(/^[\s•·.\-–—]+/, "").trim();
+
+    const m = raw.match(/^(\d{1,6})\.\s*(\d{1,6})\.\s*(.+?)(?::\s*.*)?$/);
+    if (!m) return null;
+
+    const finish = Number(m[1]);
+    if (!Number.isInteger(finish) || finish <= 0) return null;
+
+    let name = String(m[3] || "").trim();
+    if (name.includes("|")) name = name.split("|")[0].trim();
+    name = name.replace(/^[\s\-–—:|]+/, "").replace(/[\s\-–—:|]+$/, "").trim();
+    if (!name) name = "Unknown";
+
+    return { finish, name };
+  }
+
+  // Parse overrides like: "1=30, 2=15"
+  function parseOverrides(s){
+    const map = new Map();
+    const str = String(s || "").trim();
+    if (!str) return map;
+
+    const parts = str.split(",").map(p => p.trim()).filter(Boolean);
+    for (const p of parts) {
+      const m = p.match(/^(\d{1,6})\s*=\s*(\d+(?:\.\d{1,2})?)$/);
+      if (!m) continue;
+      const finish = Number(m[1]);
+      const amt = Number(m[2]);
+      if (Number.isInteger(finish) && finish > 0 && Number.isFinite(amt) && amt >= 0) {
+        map.set(finish, amt);
+      }
+    }
+    return map;
+  }
+
+  document.getElementById("genDamages").addEventListener("click",()=>{
+    const text = document.getElementById("resultsPaste").value || "";
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    const overrides = parseOverrides(document.getElementById("overrideText").value);
+
+    const totals = new Map();   // key -> sum owed
+    const display = new Map();  // key -> display name
+    let parsed = 0;
+
+    for (const l of lines) {
+      const p = parseLine(l);
+      if (!p) continue;
+      parsed++;
+
+      const key = canonicalKey(p.name);
+      if (!key) continue;
+
+      if (!display.has(key)) display.set(key, p.name);
+
+      // default owed = finish position, but allow overrides
+      const owed = overrides.has(p.finish) ? overrides.get(p.finish) : p.finish;
+
+      totals.set(key, (totals.get(key) || 0) + owed);
+    }
+
+    if (!totals.size) {
+      document.getElementById("damagesOut").textContent =
+        "No matches.\n\nExpected lines like:\n1. 74. NameHere: $1.00";
+      setStatus("err", `No matches. Parsed lines: ${parsed}`);
+      return;
+    }
+
+    const entries = Array.from(totals.entries())
+      .map(([key, amt]) => ({ name: display.get(key) || "Unknown", amt }))
+      .sort((a,b) => b.amt - a.amt);
+
+    let grand = 0;
+    const out = [];
+    for (const e of entries) {
+      grand += e.amt;
+      out.push(`${e.name}: ${money(e.amt)}`);
+    }
+    out.push("—", `TOTAL OWED: ${money(grand)}`);
+
+    document.getElementById("damagesOut").textContent = out.join("\n");
+    setStatus("ok", `Done. Parsed lines: ${parsed}${overrides.size ? " (overrides applied)" : ""}`);
+  });
+</script>
+</body>
+</html>

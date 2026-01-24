@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Line & Profit Calculator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+    input, select, button { font-size: 16px; padding: 10px; }
+    input { width: 100%; }
+    .row { display: flex; gap: 12px; align-items: end; margin-top: 12px; flex-wrap: wrap; }
+    button { cursor: pointer; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin-top: 16px; }
+    .muted { color: #666; }
+    .nav a { margin-right: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+    th { background: #f4f4f4; }
+  </style>
+</head>
+<body>
+<div class="nav">
+  <a href="/index.html">TT Calculator</a>
+  <a href="/gravity.html">Gravity Calculator</a>
+  <a href="/line.html">Line Calculator</a>
+  <a href="/cash.html">Cash Game Calculator</a>
+</div>
+
+
+
+
+
+  
+
+  <h1>Line & Profit Calculator</h1>
+  <p class="muted">Calculate your total line value and projected earnings per round.</p>
+
+  <div class="card">
+    <label>
+      Base Card Value ($)
+      <input id="cardValue" type="number" min="0" step="0.01" value="100" />
+    </label>
+
+    <label>
+      Over Comp %
+      <select id="overComp">
+        <option value="0">0%</option>
+        <option value="10">10%</option>
+        <option value="20">20%</option>
+        <option value="30">30%</option>
+      </select>
+    </label>
+
+    <label>
+      Number of Bottoms ($5 each)
+      <input id="bottoms" type="number" min="0" step="1" value="0" />
+    </label>
+
+    <label>
+      Your % of Card Earnings (Rounds 1-2)
+      <input id="yourPct" type="number" min="0" max="100" step="0.1" value="20" />
+    </label>
+
+    <label>
+      Number of Rounds
+      <input id="rounds" type="number" min="1" step="1" value="3" />
+    </label>
+
+    <button id="calcBtn">Calculate</button>
+  </div>
+
+  <div class="card">
+    <h2>Line Value Result</h2>
+    <p id="lineResult" class="muted">Your total line value will appear here.</p>
+  </div>
+
+  <div class="card">
+    <h2>Profit Projection</h2>
+    <p class="muted">
+      Profit projection is based on <b>Base Card Value only</b> (Over Comp and Bottoms do NOT affect this table).
+    </p>
+    <table id="profitTable">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th>Card Value</th>
+          <th>Your Earnings</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+      <tfoot>
+        <tr>
+          <th colspan="2">Total Profit</th>
+          <th id="totalProfit">$0.00</th>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <script>
+    const cardValueEl = document.getElementById("cardValue");
+    const overCompEl = document.getElementById("overComp");
+    const bottomsEl = document.getElementById("bottoms");
+    const yourPctEl = document.getElementById("yourPct");
+    const roundsEl = document.getElementById("rounds");
+
+    const lineResultEl = document.getElementById("lineResult");
+    const profitTableBody = document.querySelector("#profitTable tbody");
+    const totalProfitEl = document.getElementById("totalProfit");
+
+    document.getElementById("calcBtn").addEventListener("click", () => {
+      const base = Number(cardValueEl.value) || 0;
+      const overComp = Number(overCompEl.value) || 0;
+      const bottoms = Number(bottomsEl.value) || 0;
+      const yourPct = Number(yourPctEl.value) || 0;
+      const rounds = Math.max(1, Number(roundsEl.value) || 3);
+
+      // --- Calculate total line value (uses bottoms + overcomp) ---
+      const lineValue = base + base * (overComp / 100) + bottoms * 5;
+      lineResultEl.textContent = `Total Line Value: $${lineValue.toFixed(2)}`;
+
+      // --- Profit per round (BASED ONLY ON BASE) ---
+      profitTableBody.innerHTML = "";
+      let cardAmt = base; // ✅ Round 1 starts at BASE, NOT lineValue
+      let totalProfit = 0;
+
+      for (let r = 1; r <= rounds; r++) {
+        const displayCard = cardAmt;
+        let earnings;
+
+        if (r === rounds) {
+          // Last round: take all remaining card value
+          earnings = cardAmt;
+        } else {
+          earnings = cardAmt * (yourPct / 100);
+          cardAmt = cardAmt * 0.9; // drop 10% for next round
+        }
+
+        totalProfit += earnings;
+
+        const row = document.createElement("tr");
+        row.innerHTML = `<td>${r}</td><td>$${displayCard.toFixed(2)}</td><td>$${earnings.toFixed(2)}</td>`;
+        profitTableBody.appendChild(row);
+      }
+
+      totalProfitEl.textContent = `$${totalProfit.toFixed(2)}`;
+    });
+  </script>
+</body>
+</html>

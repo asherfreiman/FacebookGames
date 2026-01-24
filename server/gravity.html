@@ -1,0 +1,148 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gravity Line + Damages</title>
+  <style>
+    body { font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+    h1 { margin: 0 0 8px; }
+    h2 { margin: 0 0 10px; }
+    .muted { color:#555; font-size:14px; line-height: 1.35; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; margin: 14px 0; }
+    label { display:block; font-weight: 700; margin-top: 10px; }
+    input, textarea, button { width: 100%; font-size: 16px; padding: 10px; margin-top: 6px; box-sizing: border-box; }
+    textarea { min-height: 220px; }
+    button { cursor: pointer; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .twoCol { display:grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 12px; border-radius: 10px; border: 1px solid #eee; margin: 0; }
+    .pill { display:inline-block; padding: 4px 10px; border-radius: 999px; background:#f2f2f2; font-size: 13px; margin-right: 6px; margin-top: 6px;}
+    .ok { color:#0a7; font-weight:700; }
+    .err { color:#b00; font-weight:700; }
+    .small { font-size:13px; }
+  </style>
+</head>
+<body>
+  <h1>Gravity Line Tool</h1>
+  <div class="muted">
+    <span class="pill">Spots needed</span> uses: <span class="pill">1 + 2 + ... + n = n(n+1)/2</span><br>
+    <span class="pill">Damages</span>: spot 1 owes $1, spot 2 owes $2, etc.
+  </div>
+
+  <div class="card">
+    <h2>1) How many spots do I need?</h2>
+
+    <label for="targetValue">Target Value ($)</label>
+    <input id="targetValue" type="number" min="0" step="1" placeholder="e.g., 325" />
+
+    <button id="calcSpots" style="margin-top:12px;">Calculate Spots</button>
+
+    <div id="spotsResult" class="muted" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <h2>2) Damages from Random.org final results</h2>
+
+    <div class="muted">
+      1) Open your Random.org giveaway result page<br>
+      2) <b>Scroll to the very bottom</b><br>
+      3) Highlight the final results list and <b>Copy</b><br>
+      4) Paste below and click <b>Generate Damages</b>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div>
+        <label for="resultsPaste">Paste final round results here</label>
+        <textarea id="resultsPaste" placeholder="Paste the FINAL section from Random.org..."></textarea>
+
+        <div class="muted small" style="margin-top:8px;">
+          Works with:
+          <span class="pill">Spot 12 - Asher</span>
+          <span class="pill">12: Asher</span>
+          <span class="pill">#12 Asher</span>
+          <span class="pill">(12) Asher</span>
+        </div>
+      </div>
+
+      <div>
+        <button id="genDamages" style="margin-top:12px;">Generate Damages</button>
+        <div id="status" class="muted small" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div class="twoCol">
+      <div>
+        <h3>Detected Final Round</h3>
+        <pre id="finalOut">(nothing yet)</pre>
+      </div>
+      <div>
+        <h3>Damages</h3>
+        <pre id="damagesOut">(nothing yet)</pre>
+      </div>
+    </div>
+  </div>
+
+<script>
+  function tri(n){ return n*(n+1)/2; }
+  function minSpotsForValue(v){
+    v = Math.floor(Number(v));
+    if (!v || v <= 0) return 0;
+    return Math.ceil((Math.sqrt(1 + 8*v) - 1) / 2);
+  }
+  function money(x){ return "$" + Number(x).toFixed(2); }
+  function setStatus(kind,msg){
+    const el=document.getElementById("status");
+    el.className="muted small " + (kind==="ok"?"ok":kind==="err"?"err":"");
+    el.textContent=msg;
+  }
+
+  document.getElementById("calcSpots").addEventListener("click",()=>{
+    const v=document.getElementById("targetValue").value;
+    const n=minSpotsForValue(v);
+    const out=document.getElementById("spotsResult");
+    if(!n){ out.textContent="Enter a target value."; return; }
+    out.innerHTML=`Minimum spots: <b>${n}</b><br>Total at ${n}: <b>${tri(n)}</b><br>Total at ${n-1}: ${n>1?tri(n-1):0}`;
+  });
+
+  function extractSpot(line){
+    const s=line.trim();
+    const m =
+      s.match(/(?:^|\b)spot\s*#?\s*(\d+)/i) ||
+      s.match(/(?:^|\b)#\s*(\d+)/) ||
+      s.match(/(?:^|\s)\((\d+)\)/) ||
+      s.match(/(?:^|\b)(\d+)\s*:/) ||
+      s.match(/^\s*(\d+)\b/);
+    return m ? Number(m[1]) : null;
+  }
+
+  document.getElementById("genDamages").addEventListener("click",()=>{
+    const text=document.getElementById("resultsPaste").value||"";
+    const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    const spots=[];
+    const norm=[];
+    for(const l of lines){
+      const s=extractSpot(l);
+      if(s){
+        const name=l.replace(/^(?:spot\s*#?\s*\d+|#\s*\d+|\(?\d+\)?\s*[:\-]?)\s*/i,"").trim();
+        norm.push(`Spot ${s}${name?" - "+name:""}`);
+        spots.push(s);
+      }
+    }
+    document.getElementById("finalOut").textContent=norm.join("\n")||"(no spots found)";
+    const uniq=[...new Set(spots)].sort((a,b)=>a-b);
+    if(!uniq.length){
+      document.getElementById("damagesOut").textContent="No spots found.";
+      setStatus("err","Copy only the FINAL section from the bottom of Random.org.");
+      return;
+    }
+    let total=0;
+    const out=[];
+    for(const s of uniq){ total+=s; out.push(`Spot ${s} owes ${money(s)}`); }
+    out.push("—",`TOTAL OWED: ${money(total)}`);
+    document.getElementById("damagesOut").textContent=out.join("\n");
+    setStatus("ok","Damages generated.");
+  });
+</script>
+</body>
+</html>
